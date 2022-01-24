@@ -1,26 +1,7 @@
 #include <iostream>
 #include "test-audio.h"
 #include <unistd.h>
-
-#include <SLES/OpenSLES.h> // OpenSLES header
-#include <SLES/OpenSLES_Android.h> // OenSLES Android extension
-
-
-// The two headers below are part of the extension and not needed
-// #include <SLES/OpenSLES_AndroidConfiguration.h>
-// #include <SLES/OpenSLES_AndroidMetadata.h>
-
-// signatures
-void create_engine();
-void create_recorder();
-void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context);
-void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context);
-void set_recording_state();
-void select_clip(int which, int count);
-short* createResampledBuf(uint32_t idx, uint32_t srcRate, unsigned *size);
-void create_buffer_queue_audio_player(int sampleRate, int bufSize);
-void releaseResampleBuf(void);
-void shutdown();
+#include <stdlib.h>
 
 // a mutext to guard against re-entrance to record & playback
 // as well as make recording and playing back to be mutually exclusive
@@ -47,9 +28,10 @@ static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
 static const SLEnvironmentalReverbSettings reverbSettings =
     SL_I3DL2_ENVIRONMENT_PRESET_ROOM;
 
-// 5 seconds of recorded audio at 16 kHz mono, 16-bit signed little endian
-#define RECORDER_FRAMES (16000 * 5)
+// 10 seconds of recorded audio at 16 kHz mono, 16-bit signed little endian
+#define RECORDER_FRAMES (16000 * 10)
 static short recorderBuffer[RECORDER_FRAMES];
+// static short *recorderBuffer;
 static unsigned recorderSize = 0;
 
 // pointer and size of the next player buffer to enqueue, and number of remaining buffers
@@ -67,31 +49,38 @@ static SLmilliHertz bqPlayerSampleRate = 0;
 static short *resampleBuf = NULL;
 static int   bqPlayerBufSize = 0;
 
+void run_recorder(int frames) {
+    int seconds = frames;
+    // #undef RECORDER_FRAMES
+    // #define RECORDER_FRAMES (16000 * 30)
+    // recorderBuffer = (short*) malloc(16000 * seconds);
 
-int main()
-{
-    LOGD("Starting Audio Binary");
-    std::cout << "Hello World!!" << std::endl;
-    std::cout << "Creating Audio Engine" << std::endl;
+    std::cout << "frames:" << RECORDER_FRAMES << std::endl;
+    std::cout << "seconds:" << seconds << std::endl;
 
-    create_engine();
-    create_buffer_queue_audio_player(48000, 512);
-    create_recorder();
-    set_recording_state();
-    sleep(10);
-    select_clip(4, 1);
-    sleep(10);
+    std::cout << "size of recorder buffer" << sizeof(recorderBuffer) << std::endl;
+    // create_engine();
+    // create_buffer_queue_audio_player(48000, 512);
+    // create_recorder();
+    // set_recording_state();
+    // sleep(100);
+    // select_clip(4, 1);
+    // sleep(100);
+
     // clean up
     // destroy audio recorder object, and invalidate all associated interfaces
     LOGD("Cleaning up");
     std::cout << "Cleaning up" << std::endl;
-    shutdown();
-
-    return 0;
+    free(recorderBuffer);
+    // shutdown();
 }
+
 
 void create_engine()
 {
+    LOGD("Creating Audio Engine");
+    std::cout << "Creating Audio Engine" << std::endl;
+
     SLresult result;
 
     // create engine
@@ -139,7 +128,7 @@ void create_engine()
 
 // create audio recorder: recorder is not in fast path
 //    like to avoid excessive re-sampling while playing back from Hello & Android clip
-void create_recorder()
+int create_recorder()
 {
     SLresult result;
 
@@ -162,13 +151,17 @@ void create_recorder()
     result = (*engineEngine)->CreateAudioRecorder(engineEngine, &recorderObject, &audioSrc,
             &audioSnk, 1, id, req);
     if (SL_RESULT_SUCCESS != result) {
-        std::cout << "Error CREATING audio recorder" << std::endl;
+        LOGD("Error creating audio recorder");
+        std::cout << "Error creating audio recorder" << std::endl;
+        return OPENSL_ES_FAIL;
     }
 
     // realize the audio recorder
     result = (*recorderObject)->Realize(recorderObject, SL_BOOLEAN_FALSE);
     if (SL_RESULT_SUCCESS != result) {
-        std::cout << "Error REALIZING audio recorder" << std::endl;
+        LOGD("Error realizing audio recorder");
+        std::cout << "Error realizing audio recorder" << std::endl;
+        return OPENSL_ES_FAIL;
     }
 
     // get the record interface
@@ -182,18 +175,21 @@ void create_recorder()
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
 
-    std::cout << "Registering Callback" << std::endl;
+    LOGD("Registering Recorder Callback");
+    std::cout << "Registering Recorder Callback" << std::endl;
     // register callback on the buffer queue
     result = (*recorderBufferQueue)->RegisterCallback(recorderBufferQueue, bqRecorderCallback,
             NULL);
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
+
+    return OPENSL_ES_SUCCESS;
 }
 
 // this callback handler is called every time a buffer finishes recording
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
 {
-    std::cout << "Inside of register callback" << std::endl;
+    std::cout << "Recording Callback Triggered" << std::endl;
     LOGD("Recording Callback Triggered");
     assert(bq == recorderBufferQueue);
     assert(NULL == context);
@@ -238,8 +234,9 @@ void set_recording_state()
 
 
     // Set the duration of the recording - 30 seconds (30,000 milliseconds)
+    result = (*recorderRecord)->SetDurationLimit(recorderRecord, 3000);
     std::cout << "Setting duration to 2 seconds" << std::endl;
-    result = (*recorderRecord)->SetDurationLimit(recorderRecord, 1000);
+
     assert(SL_RESULT_SUCCESS == result);
     LOGD("Starting recording...");
     std::cout << "Starting recording..." << std::endl;
