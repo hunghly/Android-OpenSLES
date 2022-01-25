@@ -1,5 +1,5 @@
-#ifndef TESTAUDIO_H
-#define TESTAUDIO_H
+#ifndef OPENSL_H
+#define OPENSL_H
 
 #include <android/log.h>
 #include <SLES/OpenSLES.h> // OpenSLES header
@@ -37,8 +37,8 @@ static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
 static const SLEnvironmentalReverbSettings reverbSettings =
     SL_I3DL2_ENVIRONMENT_PRESET_ROOM;
 
-// 100 seconds of recorded audio at 16 kHz mono, 16-bit signed little endian
-#define RECORDER_FRAMES (16000 * 100)
+// 15 minutes of recorded audio at 16 kHz mono, 16-bit signed little endian
+#define RECORDER_FRAMES (16000 * 900)
 static short recorderBuffer[RECORDER_FRAMES];
 // static short *recorderBuffer;
 static unsigned recorderSize = 0;
@@ -63,8 +63,8 @@ int create_recorder();
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context);
 void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context);
 void set_recording_state(int state);
-int select_clip(int which, int count);
-short* createResampledBuf(uint32_t idx, uint32_t srcRate, unsigned *size);
+int play_clip();
+short* createResampledBuf(uint32_t srcRate, unsigned *size);
 void create_buffer_queue_audio_player(int sampleRate, int bufSize);
 void releaseResampleBuf(void);
 void shutdown();

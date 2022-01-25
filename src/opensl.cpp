@@ -1,14 +1,9 @@
 #include <iostream>
-#include <unistd.h>
-#include <stdlib.h>
 #include "opensl.h"
 
 
 void create_engine()
 {
-    LOGD("Creating Audio Engine");
-    std::cout << "Creating Audio Engine" << std::endl;
-
     SLresult result;
 
     // create engine
@@ -49,9 +44,6 @@ void create_engine()
                 outputMixEnvironmentalReverb, &reverbSettings);
         (void)result;
     }
-    // ignore unsuccessful result codes for environmental reverb, as it is optional for this example
-    LOGD("No Issues");
-    std::cout << "No Issues" << std::endl;
 }
 
 // create audio recorder: recorder is not in fast path
@@ -103,43 +95,23 @@ int create_recorder()
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
 
-    LOGD("Registering Recorder Callback");
-    std::cout << "Registering Recorder Callback" << std::endl;
     // register callback on the buffer queue
     result = (*recorderBufferQueue)->RegisterCallback(recorderBufferQueue, bqRecorderCallback,
             NULL);
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
-
-    // /* Set notifications to occur after every second - may be useful in
-    // updating a recording progress bar */
-    // result = (*recorderItf)->SetPositionUpdatePeriod( recorderItf,
-    // 1000);
-    // result = (*recorderItf)->SetCallbackEventsMask( recorderItf,
-    // SL_RECORDEVENT_HEADATNEWPOS);
-
-    // // Set the duration of the recording - 30 seconds (30,000 milliseconds)
-    // result = (*recorderItf)->SetDurationLimit(recorderItf, 2000);
-    // std::cout << "Setting duration to 2 seconds. Result:" << result << std::endl;
-    // assert(SL_RESULT_SUCCESS == result);
-
     return OPENSL_SUCCESS;
 }
 
 // this callback handler is called every time a buffer finishes recording
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
 {
-    std::cout << "Recording Callback Triggered" << std::endl;
-    LOGD("Recording Callback Triggered");
     assert(bq == recorderBufferQueue);
     assert(NULL == context);
     // for streaming recording, here we would call Enqueue to give recorder the next buffer to fill
     // but instead, this is a one-time buffer so we stop recording
     SLresult result;
-    
-    // result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
-    //         RECORDER_FRAMES * sizeof(short));
-    
+
     result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_STOPPED);
     if (SL_RESULT_SUCCESS == result) {
         recorderSize = RECORDER_FRAMES * sizeof(short);
@@ -174,7 +146,6 @@ void set_recording_state(int state)
 
         // start recording
         result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_RECORDING);
-        std::cout << "Result is: " << result << std::endl;
         assert(SL_RESULT_SUCCESS == result);
         (void)result;
     }
@@ -188,38 +159,27 @@ void set_recording_state(int state)
     }
 }
 
-int select_clip(int which, int count)
+int play_clip()
 {
     if (pthread_mutex_trylock(&audioEngineLock)) {
         // If we could not acquire audio engine lock, reject this request and client should re-try
         return OPENSL_FAIL;
     }
-    switch (which) {
-        case 4:     // CLIP_PLAYBACK
-            LOGD("Created resampled buffer... Next Size %d", nextSize);
-            std::cout << "Creating resampled buffer... Next Size:" << nextSize << std::endl;
-            nextBuffer = createResampledBuf(4, SL_SAMPLINGRATE_16, &nextSize);
-            // we recorded at 16 kHz, but are playing buffers at 8 Khz, so do a primitive down-sample
-            if(!nextBuffer) {
-                unsigned i;
-                for (i = 0; i < recorderSize; i += 2 * sizeof(short)) {
-                    recorderBuffer[i >> 2] = recorderBuffer[i >> 1];
-                }
-                recorderSize >>= 1;
-                nextBuffer = recorderBuffer;
-                nextSize = recorderSize;
-                std::cout << "recorderSize:" << recorderSize << " nextBuffer: " << nextBuffer << " nextsize: " << nextSize << std::endl;
-            }
-            break;
-        default:
-            nextBuffer = NULL;
-            nextSize = 0;
-            break;
+
+    nextBuffer = createResampledBuf(SL_SAMPLINGRATE_16, &nextSize);
+    // we recorded at 16 kHz, but are playing buffers at 8 Khz, so do a primitive down-sample
+    if(!nextBuffer) {
+        unsigned i;
+        for (i = 0; i < recorderSize; i += 2 * sizeof(short)) {
+            recorderBuffer[i >> 2] = recorderBuffer[i >> 1];
+        }
+        recorderSize >>= 1;
+        nextBuffer = recorderBuffer;
+        nextSize = recorderSize;
+        std::cout << "recorderSize:" << recorderSize << " nextBuffer: " << nextBuffer << " nextsize: " << nextSize << std::endl;
     }
-    nextCount = count;
+
     if (nextSize > 0) {
-        LOGD("Playing back audio...");
-        std::cout << "Playing back audio..." << std::endl;
         // here we only enqueue one buffer because it is a long clip,
         // but for streaming playback we would typically enqueue at least 2 buffers to start
         SLresult result;
@@ -238,38 +198,22 @@ int select_clip(int which, int count)
 /*
  * Only support up-sampling
  */
-short* createResampledBuf(uint32_t idx, uint32_t srcRate, unsigned *size) {
+short* createResampledBuf(uint32_t srcRate, unsigned *size) {
     short  *src = NULL;
     short  *workBuf;
     int    upSampleRate;
     int32_t srcSampleCount = 0;
-    std::cout << "Inside of create resampledbuffer...1" << std::endl;
 
     if(0 == bqPlayerSampleRate) {
-        std::cout << "Inside of create resampledbuffer...2" << std::endl;
-
         return NULL;
     }
     if(bqPlayerSampleRate % srcRate) {
-        /*
-         * simple up-sampling, must be divisible
-         */
-        std::cout << "Inside of create resampledbuffer...3" << std::endl;
         return NULL;
     }
     upSampleRate = bqPlayerSampleRate / srcRate;
-    std::cout << "Inside of create resampledbuffer..." << "upsample:" << upSampleRate << std::endl;
 
-    switch (idx) {
-        case 4: // captured frames
-            std::cout << "Case 4" << std::endl;
-            srcSampleCount = recorderSize / sizeof(short);
-            src =  recorderBuffer;
-            break;
-        default:
-            assert(0);
-            return NULL;
-    }
+    srcSampleCount = recorderSize / sizeof(short);
+    src =  recorderBuffer;
 
     resampleBuf = (short*) malloc((srcSampleCount * upSampleRate) << 1);
     if(resampleBuf == NULL) {
@@ -283,7 +227,6 @@ short* createResampledBuf(uint32_t idx, uint32_t srcRate, unsigned *size) {
     }
 
     *size = (srcSampleCount * upSampleRate) << 1;     // sample format is 16 bit
-    std::cout << "Returning resampled buffer: " << resampleBuf << std::endl;
     return resampleBuf;
 }
 
@@ -291,8 +234,6 @@ short* createResampledBuf(uint32_t idx, uint32_t srcRate, unsigned *size) {
 void create_buffer_queue_audio_player(int sampleRate, int bufSize)
 {
     SLresult result;
-    LOGD("Creating BQAP");
-    std::cout << "Creating Buffer Queue Audio Player" << std::endl;
     if (sampleRate >= 0 && bufSize >= 0 ) {
         bqPlayerSampleRate = sampleRate * 1000;
         /*
@@ -365,28 +306,10 @@ void create_buffer_queue_audio_player(int sampleRate, int bufSize)
         (void)result;
     }
 
-#if 0   // mute/solo is not supported for sources that are known to be mono, as this is
-    // get the mute/solo interface
-    result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_MUTESOLO, &bqPlayerMuteSolo);
-    assert(SL_RESULT_SUCCESS == result);
-    (void)result;
-#endif
-
     // get the volume interface
     result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_VOLUME, &bqPlayerVolume);
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
-
-
-    // Get duration
-    SLmillisecond      DurationMsec = 0;
-    result = (*bqPlayerPlay)->GetDuration(bqPlayerPlay, &DurationMsec);
-    if (DurationMsec != SL_TIME_UNKNOWN) {
-        std::cout << "Duration is: " << DurationMsec << std::endl;
-    } else {
-        std::cout << "Duration is SL_TIME_UNKNOWN" << std::endl;
-    }
-
 
     // set the player's state to playing
     result = (*bqPlayerPlay)->SetPlayState(bqPlayerPlay, SL_PLAYSTATE_PLAYING);
@@ -397,9 +320,6 @@ void create_buffer_queue_audio_player(int sampleRate, int bufSize)
 // this callback handler is called every time a buffer finishes playing
 void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
 {
-    LOGD("Inside of PlayerCallback");
-    std::cout << "Inside of Player Callback" << std::endl;
-
     assert(bq == bqPlayerBufferQueue);
     assert(NULL == context);
     // for streaming playback, replace this test by logic to find and fill the next buffer
@@ -421,9 +341,6 @@ void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
 
 void releaseResampleBuf(void) {
     if( 0 == bqPlayerSampleRate) {
-        /*
-         * we are not using fast path, so we were not creating buffers, nothing to do
-         */
         return;
     }
 
@@ -433,7 +350,6 @@ void releaseResampleBuf(void) {
 
 void shutdown()
 {
-
     // destroy buffer queue audio player object, and invalidate all associated interfaces
     if (bqPlayerObject != NULL) {
         (*bqPlayerObject)->Destroy(bqPlayerObject);
@@ -441,29 +357,9 @@ void shutdown()
         bqPlayerPlay = NULL;
         bqPlayerBufferQueue = NULL;
         bqPlayerEffectSend = NULL;
-        // bqPlayerMuteSolo = NULL;
         bqPlayerVolume = NULL;
     }
 
-    // // destroy file descriptor audio player object, and invalidate all associated interfaces
-    // if (fdPlayerObject != NULL) {
-    //     (*fdPlayerObject)->Destroy(fdPlayerObject);
-    //     fdPlayerObject = NULL;
-    //     fdPlayerPlay = NULL;
-    //     fdPlayerSeek = NULL;
-    //     fdPlayerMuteSolo = NULL;
-    //     fdPlayerVolume = NULL;
-    // }
-
-    // // destroy URI audio player object, and invalidate all associated interfaces
-    // if (uriPlayerObject != NULL) {
-    //     (*uriPlayerObject)->Destroy(uriPlayerObject);
-    //     uriPlayerObject = NULL;
-    //     uriPlayerPlay = NULL;
-    //     uriPlayerSeek = NULL;
-    //     uriPlayerMuteSolo = NULL;
-    //     uriPlayerVolume = NULL;
-    // }
 
     // destroy audio recorder object, and invalidate all associated interfaces
     if (recorderObject != NULL) {
@@ -473,12 +369,12 @@ void shutdown()
         recorderBufferQueue = NULL;
     }
 
-    // // destroy output mix object, and invalidate all associated interfaces
-    // if (outputMixObject != NULL) {
-    //     (*outputMixObject)->Destroy(outputMixObject);
-    //     outputMixObject = NULL;
-    //     outputMixEnvironmentalReverb = NULL;
-    // }
+    // destroy output mix object, and invalidate all associated interfaces
+    if (outputMixObject != NULL) {
+        (*outputMixObject)->Destroy(outputMixObject);
+        outputMixObject = NULL;
+        outputMixEnvironmentalReverb = NULL;
+    }
 
     // destroy engine object, and invalidate all associated interfaces
     if (engineObject != NULL) {
