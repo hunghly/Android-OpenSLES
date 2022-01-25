@@ -12,7 +12,7 @@
 
 
 // signatures
-void run_recorder(int frames);
+// void run_recorder(int frames);
 void create_engine();
 int create_recorder();
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context);

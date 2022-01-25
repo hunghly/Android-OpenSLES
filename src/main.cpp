@@ -34,7 +34,7 @@ int main(int argc, char **argv)
         }
     }
     LOGD("Starting Audio Binary");
-    run_recorder(seconds);
+    // run_recorder(seconds);
     // create_engine();
     // create_buffer_queue_audio_player(48000, 512);
     // create_recorder();

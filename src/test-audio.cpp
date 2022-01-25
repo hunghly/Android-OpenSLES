@@ -49,31 +49,28 @@ static SLmilliHertz bqPlayerSampleRate = 0;
 static short *resampleBuf = NULL;
 static int   bqPlayerBufSize = 0;
 
-void run_recorder(int frames) {
-    int seconds = frames;
-    // #undef RECORDER_FRAMES
-    // #define RECORDER_FRAMES (16000 * 30)
-    // recorderBuffer = (short*) malloc(16000 * seconds);
+// void run_recorder(int frames) {
 
-    std::cout << "frames:" << RECORDER_FRAMES << std::endl;
-    std::cout << "seconds:" << seconds << std::endl;
 
-    std::cout << "size of recorder buffer" << sizeof(recorderBuffer) << std::endl;
+    // std::cout << "frames:" << RECORDER_FRAMES << std::endl;
+    // std::cout << "seconds:" << seconds << std::endl;
+
+    // std::cout << "size of recorder buffer" << sizeof(recorderBuffer) << std::endl;
     // create_engine();
     // create_buffer_queue_audio_player(48000, 512);
     // create_recorder();
     // set_recording_state();
-    // sleep(100);
+    // sleep(15);
     // select_clip(4, 1);
-    // sleep(100);
+    // sleep(15);
 
     // clean up
     // destroy audio recorder object, and invalidate all associated interfaces
-    LOGD("Cleaning up");
-    std::cout << "Cleaning up" << std::endl;
-    free(recorderBuffer);
+    // LOGD("Cleaning up");
+    // std::cout << "Cleaning up" << std::endl;
+    // free(recorderBuffer);
     // shutdown();
-}
+// }
 
 
 void create_engine()
@@ -183,6 +180,13 @@ int create_recorder()
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
 
+    /* Set notifications to occur after every second - may be useful in
+    updating a recording progress bar */
+    result = (*recorderRecord)->SetPositionUpdatePeriod( recorderRecord,
+    1000);
+    result = (*recorderRecord)->SetCallbackEventsMask( recorderRecord,
+    SL_RECORDEVENT_HEADATNEWPOS);
+
     return OPENSL_ES_SUCCESS;
 }
 
@@ -196,6 +200,10 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
     // for streaming recording, here we would call Enqueue to give recorder the next buffer to fill
     // but instead, this is a one-time buffer so we stop recording
     SLresult result;
+    
+    // result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
+    //         RECORDER_FRAMES * sizeof(short));
+            
     result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_STOPPED);
     if (SL_RESULT_SUCCESS == result) {
         recorderSize = RECORDER_FRAMES * sizeof(short);
@@ -227,6 +235,7 @@ void set_recording_state()
     // (for streaming recording, we would enqueue at least 2 empty buffers to start things off)
     result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
             RECORDER_FRAMES * sizeof(short));
+            
     // the most likely other result is SL_RESULT_BUFFER_INSUFFICIENT,
     // which for this code example would indicate a programming error
     assert(SL_RESULT_SUCCESS == result);
