@@ -4,52 +4,6 @@
 #include "opensl.h"
 
 
-// a mutext to guard against re-entrance to record & playback
-// as well as make recording and playing back to be mutually exclusive
-// this is to avoid crash at situations like:
-//    recording is in session [not finished]
-//    user presses record button and another recording coming in
-// The action: when recording/playing back is not finished, ignore the new request
-static pthread_mutex_t  audioEngineLock = PTHREAD_MUTEX_INITIALIZER;
-
-// engine interfaces
-static SLEngineItf engineEngine; // This interface exposes creation methods of all the OpenSL ES object types.
-static SLObjectItf engineObject = NULL; //The SLObjectItf interface provides essential utility methods for all objects. 
-
-// output mix interfaces
-static SLObjectItf outputMixObject = NULL;
-static SLEnvironmentalReverbItf outputMixEnvironmentalReverb = NULL;
-
-// recorder interfaces
-static SLObjectItf recorderObject = NULL;
-static SLRecordItf recorderRecord;
-static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
-
-// aux effect on the output mix, used by the buffer queue player
-static const SLEnvironmentalReverbSettings reverbSettings =
-    SL_I3DL2_ENVIRONMENT_PRESET_ROOM;
-
-// 10 seconds of recorded audio at 16 kHz mono, 16-bit signed little endian
-#define RECORDER_FRAMES (16000 * 1000)
-static short recorderBuffer[RECORDER_FRAMES];
-// static short *recorderBuffer;
-static unsigned recorderSize = 0;
-
-// pointer and size of the next player buffer to enqueue, and number of remaining buffers
-static short *nextBuffer;
-static unsigned nextSize;
-static int nextCount;
-
-// buffer queue player interfaces
-static SLObjectItf bqPlayerObject = NULL;
-static SLPlayItf bqPlayerPlay;
-static SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
-static SLEffectSendItf bqPlayerEffectSend;
-static SLVolumeItf bqPlayerVolume;
-static SLmilliHertz bqPlayerSampleRate = 0;
-static short *resampleBuf = NULL;
-static int   bqPlayerBufSize = 0;
-
 void create_engine()
 {
     LOGD("Creating Audio Engine");
@@ -127,7 +81,7 @@ int create_recorder()
     if (SL_RESULT_SUCCESS != result) {
         LOGD("Error creating audio recorder");
         std::cout << "Error creating audio recorder" << std::endl;
-        return OPENSL_ES_FAIL;
+        return OPENSL_FAIL;
     }
 
     // realize the audio recorder
@@ -135,11 +89,11 @@ int create_recorder()
     if (SL_RESULT_SUCCESS != result) {
         LOGD("Error realizing audio recorder");
         std::cout << "Error realizing audio recorder" << std::endl;
-        return OPENSL_ES_FAIL;
+        return OPENSL_FAIL;
     }
 
     // get the record interface
-    result = (*recorderObject)->GetInterface(recorderObject, SL_IID_RECORD, &recorderRecord);
+    result = (*recorderObject)->GetInterface(recorderObject, SL_IID_RECORD, &recorderItf);
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
 
@@ -157,14 +111,19 @@ int create_recorder()
     assert(SL_RESULT_SUCCESS == result);
     (void)result;
 
-    /* Set notifications to occur after every second - may be useful in
-    updating a recording progress bar */
-    result = (*recorderRecord)->SetPositionUpdatePeriod( recorderRecord,
-    1000);
-    result = (*recorderRecord)->SetCallbackEventsMask( recorderRecord,
-    SL_RECORDEVENT_HEADATNEWPOS);
+    // /* Set notifications to occur after every second - may be useful in
+    // updating a recording progress bar */
+    // result = (*recorderItf)->SetPositionUpdatePeriod( recorderItf,
+    // 1000);
+    // result = (*recorderItf)->SetCallbackEventsMask( recorderItf,
+    // SL_RECORDEVENT_HEADATNEWPOS);
 
-    return OPENSL_ES_SUCCESS;
+    // // Set the duration of the recording - 30 seconds (30,000 milliseconds)
+    // result = (*recorderItf)->SetDurationLimit(recorderItf, 2000);
+    // std::cout << "Setting duration to 2 seconds. Result:" << result << std::endl;
+    // assert(SL_RESULT_SUCCESS == result);
+
+    return OPENSL_SUCCESS;
 }
 
 // this callback handler is called every time a buffer finishes recording
@@ -180,8 +139,8 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
     
     // result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
     //         RECORDER_FRAMES * sizeof(short));
-            
-    result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_STOPPED);
+    
+    result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_STOPPED);
     if (SL_RESULT_SUCCESS == result) {
         recorderSize = RECORDER_FRAMES * sizeof(short);
     }
@@ -189,58 +148,51 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context)
 }
 
 // set the recording state for the audio recorder
-void set_recording_state()
+void set_recording_state(int state)
 {
     SLresult result;
 
-    if (pthread_mutex_trylock(&audioEngineLock)) {
-        std::cout << "Unable to unlock mutex lock" << std::endl;
-        return;
+    if (state == START_RECORD) {
+        if (pthread_mutex_trylock(&audioEngineLock)) {
+                std::cout << "Unable to unlock mutex lock" << std::endl;
+                return;
+        }
+        // in case already recording, stop recording and clear buffer queue
+        result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_STOPPED);
+        assert(SL_RESULT_SUCCESS == result);
+        (void)result;
+        result = (*recorderBufferQueue)->Clear(recorderBufferQueue);
+        assert(SL_RESULT_SUCCESS == result);
+        (void)result;
+
+        // the buffer is not valid for playback yet
+        recorderSize = 0;
+        result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
+                RECORDER_FRAMES * sizeof(short));
+        assert(SL_RESULT_SUCCESS == result);
+        (void)result;
+
+        // start recording
+        result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_RECORDING);
+        std::cout << "Result is: " << result << std::endl;
+        assert(SL_RESULT_SUCCESS == result);
+        (void)result;
     }
-    // in case already recording, stop recording and clear buffer queue
-    result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_STOPPED);
-    assert(SL_RESULT_SUCCESS == result);
-    (void)result;
-    result = (*recorderBufferQueue)->Clear(recorderBufferQueue);
-    assert(SL_RESULT_SUCCESS == result);
-    (void)result;
-
-    // the buffer is not valid for playback yet
-    recorderSize = 0;
-
-    // enqueue an empty buffer to be filled by the recorder
-    // (for streaming recording, we would enqueue at least 2 empty buffers to start things off)
-    result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffer,
-            RECORDER_FRAMES * sizeof(short));
-            
-    // the most likely other result is SL_RESULT_BUFFER_INSUFFICIENT,
-    // which for this code example would indicate a programming error
-    assert(SL_RESULT_SUCCESS == result);
-    (void)result;
-
-
-    // Set the duration of the recording - 30 seconds (30,000 milliseconds)
-    result = (*recorderRecord)->SetDurationLimit(recorderRecord, 3000);
-    std::cout << "Setting duration to 2 seconds" << std::endl;
-
-    assert(SL_RESULT_SUCCESS == result);
-    LOGD("Starting recording...");
-    std::cout << "Starting recording..." << std::endl;
-    // start recording
-    result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_RECORDING);
-    std::cout << "Result is: " << result << std::endl;
-    assert(SL_RESULT_SUCCESS == result);
-    (void)result;
+    else if (state == STOP_RECORD) {
+        SLresult result;
+        result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_STOPPED);
+        if (SL_RESULT_SUCCESS == result) {
+            recorderSize = RECORDER_FRAMES * sizeof(short);
+        }
+        pthread_mutex_unlock(&audioEngineLock);
+    }
 }
 
-// select the desired clip and play count, and enqueue the first buffer if idle
-void select_clip(int which, int count)
-{        
-    LOGD("Selecting clip...");
-    std::cout << "Selecting clip..." << std::endl;
+int select_clip(int which, int count)
+{
     if (pthread_mutex_trylock(&audioEngineLock)) {
         // If we could not acquire audio engine lock, reject this request and client should re-try
-        // return 1;
+        return OPENSL_FAIL;
     }
     switch (which) {
         case 4:     // CLIP_PLAYBACK
@@ -274,13 +226,13 @@ void select_clip(int which, int count)
         result = (*bqPlayerBufferQueue)->Enqueue(bqPlayerBufferQueue, nextBuffer, nextSize);
         if (SL_RESULT_SUCCESS != result) {
             pthread_mutex_unlock(&audioEngineLock);
-            // return JNI_FALSE;
+            return OPENSL_FAIL;
         }
     } else {
         pthread_mutex_unlock(&audioEngineLock);
     }
 
-    // return 0;
+    return OPENSL_SUCCESS;
 }
 
 /*
@@ -517,7 +469,7 @@ void shutdown()
     if (recorderObject != NULL) {
         (*recorderObject)->Destroy(recorderObject);
         recorderObject = NULL;
-        recorderRecord = NULL;
+        recorderItf = NULL;
         recorderBufferQueue = NULL;
     }
 
