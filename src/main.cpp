@@ -1,5 +1,5 @@
 #include <iostream>
-#include "test-audio.h"
+#include "opensl.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,7 +22,6 @@ int main(int argc, char **argv)
             case 's':
                 seconds = atoi(optarg);
                 printf("seconds: %d", seconds);
-                // recorderBuffer[RECORDER_FRAMES];
             case 'p':
                 strncpy(filepath, optarg, strlen(optarg) + 1);
             case 'f':
@@ -35,19 +34,19 @@ int main(int argc, char **argv)
     }
     LOGD("Starting Audio Binary");
     // run_recorder(seconds);
-    // create_engine();
-    // create_buffer_queue_audio_player(48000, 512);
-    // create_recorder();
-    // set_recording_state();
-    // sleep(100);
-    // select_clip(4, 1);
-    // sleep(100);
+    create_engine();
+    create_buffer_queue_audio_player(48000, 512);
+    create_recorder();
+    set_recording_state();
+    sleep(10);
+    select_clip(4, 1);
+    sleep(10);
 
     // clean up
     // destroy audio recorder object, and invalidate all associated interfaces
-    // LOGD("Cleaning up");
-    // std::cout << "Cleaning up" << std::endl;
-    // shutdown();
+    LOGD("Cleaning up");
+    std::cout << "Cleaning up" << std::endl;
+    shutdown();
 
     return 0;
 }

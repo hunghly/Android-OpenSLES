@@ -10,9 +10,6 @@
 #define OPENSL_ES_FAIL 0
 #define OPENSL_ES_SUCCESS 1
 
-
-// signatures
-// void run_recorder(int frames);
 void create_engine();
 int create_recorder();
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context);

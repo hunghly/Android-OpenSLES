@@ -1,7 +1,8 @@
 #include <iostream>
-#include "test-audio.h"
 #include <unistd.h>
 #include <stdlib.h>
+#include "opensl.h"
+
 
 // a mutext to guard against re-entrance to record & playback
 // as well as make recording and playing back to be mutually exclusive
@@ -29,7 +30,7 @@ static const SLEnvironmentalReverbSettings reverbSettings =
     SL_I3DL2_ENVIRONMENT_PRESET_ROOM;
 
 // 10 seconds of recorded audio at 16 kHz mono, 16-bit signed little endian
-#define RECORDER_FRAMES (16000 * 10)
+#define RECORDER_FRAMES (16000 * 1000)
 static short recorderBuffer[RECORDER_FRAMES];
 // static short *recorderBuffer;
 static unsigned recorderSize = 0;
@@ -48,30 +49,6 @@ static SLVolumeItf bqPlayerVolume;
 static SLmilliHertz bqPlayerSampleRate = 0;
 static short *resampleBuf = NULL;
 static int   bqPlayerBufSize = 0;
-
-// void run_recorder(int frames) {
-
-
-    // std::cout << "frames:" << RECORDER_FRAMES << std::endl;
-    // std::cout << "seconds:" << seconds << std::endl;
-
-    // std::cout << "size of recorder buffer" << sizeof(recorderBuffer) << std::endl;
-    // create_engine();
-    // create_buffer_queue_audio_player(48000, 512);
-    // create_recorder();
-    // set_recording_state();
-    // sleep(15);
-    // select_clip(4, 1);
-    // sleep(15);
-
-    // clean up
-    // destroy audio recorder object, and invalidate all associated interfaces
-    // LOGD("Cleaning up");
-    // std::cout << "Cleaning up" << std::endl;
-    // free(recorderBuffer);
-    // shutdown();
-// }
-
 
 void create_engine()
 {
